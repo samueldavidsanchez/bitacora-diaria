@@ -81,7 +81,7 @@ vin_reparados_unicos = int(base.loc[base["ES_REVISADO"] & base["TIENE_FECHA_REP"
 pct_reparados = (vin_reparados_unicos / vin_total_unicos * 100) if vin_total_unicos else 0
 pct_no_reparados = 100 - pct_reparados if vin_total_unicos else 0
 
-st.subheader("KPIs — VIN únicos y VIN reparados (solo con Fecha reparación)")
+st.subheader("KPIs")
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Total VIN únicos", f"{vin_total_unicos:,}".replace(",", "."))
@@ -92,7 +92,7 @@ k4.metric("% VIN no reparados", f"{pct_no_reparados:.1f}%")
 # =========================
 # SEMANA ACTUAL — Reparados esta semana (según fecha)
 # =========================
-st.subheader("Semana actual — Reparados (según Fecha reparación)")
+st.subheader("Semana actual")
 
 today = pd.Timestamp(date.today())
 year_now = int(today.isocalendar().year)
@@ -113,12 +113,11 @@ else:
 
     s1, s2 = st.columns(2)
     s1.metric("VIN reparados (únicos) — semana", f"{w_vin_reparados:,}".replace(",", "."))
-    s2.metric("Registros 'Revisado' — semana", f"{w_registros_rep:,}".replace(",", "."))
 
 # =========================
 # VISTA 3 — Reparaciones por día (solo filas con fecha)
 # =========================
-st.subheader("Vista 3 — Reparaciones por día (solo registros con Fecha reparación)")
+st.subheader("Reparaciones por día")
 
 rep_only2 = base[base["TIENE_FECHA_REP"]].copy()
 if rep_only2.empty:
@@ -136,9 +135,9 @@ else:
         .sort_values("DIA")
     )
 
-    st.line_chart(by_day.set_index("DIA")[["registros_con_fecha", "registros_revisados"]])
+    st.line_chart(by_day.set_index("DIA")["registros revisados"])
 
-    st.subheader("Tabla diaria — VIN reparados (únicos por día)")
+    st.subheader("VIN reparados (únicos por día)")
     by_day_units = (
         rep_only2.loc[rep_only2["ES_REVISADO"]]
         .assign(DIA=lambda x: x["FECHA_TRABAJO"].dt.date)
@@ -151,9 +150,9 @@ else:
     st.dataframe(by_day_units, use_container_width=True)
 
 # =========================
-# DASHBOARD — PROBLEMAS MÁS TÍPICOS (solo todos los registros)
+# PROBLEMAS MÁS TÍPICOS
 # =========================
-st.subheader("Dashboard — Problemas más típicos (Tipo de problema)")
+st.subheader("Problemas más típicos")
 
 tmp = base.copy()
 tmp["PROBLEMA"] = tmp[COL_PROB].fillna("Sin clasificar").astype(str).str.strip()
