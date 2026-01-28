@@ -15,10 +15,9 @@ COL_ESTADO = "Unidad revisada/Operativa"
 COL_PROB = "Tipo de problema"
 
 # =========================
-# CARGA (usa bitacora.xlsx si existe; si no, cae a CSV)
+# RUTAS
 # =========================
 BASE_DIR = Path(__file__).resolve().parent
-df = pd.read_excel(BASE_DIR / "data" / "bitacora.xlsx")
 XLSX_PATH = BASE_DIR / "data" / "bitacora.xlsx"
 CSV_PATH = BASE_DIR / "data" / "bitacora.csv"
 
@@ -60,7 +59,7 @@ df["FECHA_TRABAJO"] = pd.to_datetime(df[COL_FECHA], dayfirst=True, errors="coerc
 df["TIENE_FECHA_REP"] = df["FECHA_TRABAJO"].notna()
 
 # =========================
-# FILTROS (opcionales)
+# FILTROS
 # =========================
 with st.sidebar:
     st.header("Filtros")
@@ -74,15 +73,12 @@ if show_active_only:
 # KPI PRINCIPAL: VIN únicos vs VIN reparados (con fecha)
 # =========================
 vin_total_unicos = int(base["UNIDAD_ID"].nunique())
-
-# Reparados = estado Revisado + tiene fecha de reparación válida
 vin_reparados_unicos = int(base.loc[base["ES_REVISADO"] & base["TIENE_FECHA_REP"], "UNIDAD_ID"].nunique())
 
 pct_reparados = (vin_reparados_unicos / vin_total_unicos * 100) if vin_total_unicos else 0
 pct_no_reparados = 100 - pct_reparados if vin_total_unicos else 0
 
 st.subheader("KPIs")
-
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Total VIN únicos", f"{vin_total_unicos:,}".replace(",", "."))
 k2.metric("VIN reparados (únicos)", f"{vin_reparados_unicos:,}".replace(",", "."))
@@ -109,13 +105,12 @@ else:
     w = rep_only[(rep_only["_YEAR"] == year_now) & (rep_only["_WEEK"] == week_now)].copy()
 
     w_vin_reparados = int(w.loc[w["ES_REVISADO"], "UNIDAD_ID"].nunique())
-    w_registros_rep = int((w["ES_REVISADO"]).sum())
 
     s1, s2 = st.columns(2)
     s1.metric("VIN reparados (únicos) — semana", f"{w_vin_reparados:,}".replace(",", "."))
 
 # =========================
-# VISTA 3 — Reparaciones por día (solo filas con fecha)
+# REPARACIONES POR DÍA (solo filas con fecha)
 # =========================
 st.subheader("Reparaciones por día")
 
@@ -123,31 +118,37 @@ rep_only2 = base[base["TIENE_FECHA_REP"]].copy()
 if rep_only2.empty:
     st.info("No hay filas con Fecha reparación para graficar por día.")
 else:
+    rep_only2 = rep_only2.assign(DIA=rep_only2["FECHA_TRABAJO"].dt.date)
+
+    # Registros por día
     by_day = (
-        rep_only2.assign(DIA=rep_only2["FECHA_TRABAJO"].dt.date)
-        .groupby("DIA")
+        rep_only2.groupby("DIA")
         .agg(
             registros_con_fecha=("UNIDAD_ID", "count"),
             registros_revisados=("ES_REVISADO", "sum"),
-            vin_reparados_unicos=("UNIDAD_ID", lambda s: rep_only2.loc[s.index].loc[rep_only2.loc[s.index, "ES_REVISADO"], "UNIDAD_ID"].nunique()),
         )
         .reset_index()
         .sort_values("DIA")
     )
 
-    st.line_chart(by_day.set_index("DIA")["registros revisados"])
-
-    st.subheader("VIN reparados (únicos por día)")
+    # VIN reparados únicos por día (solo Revisado)
     by_day_units = (
         rep_only2.loc[rep_only2["ES_REVISADO"]]
-        .assign(DIA=lambda x: x["FECHA_TRABAJO"].dt.date)
         .groupby("DIA")["UNIDAD_ID"]
         .nunique()
         .rename("vin_reparados_unicos")
         .reset_index()
         .sort_values("DIA")
     )
-    st.dataframe(by_day_units, use_container_width=True)
+
+    # Unimos para graficar / mostrar
+    by_day_full = by_day.merge(by_day_units, on="DIA", how="left").fillna({"vin_reparados_unicos": 0})
+
+    # ✅ ARREGLADO: nombres correctos (con underscore)
+    st.line_chart(by_day_full.set_index("DIA")[["registros_con_fecha", "registros_revisados"]])
+
+    st.subheader("VIN reparados (únicos por día)")
+    st.dataframe(by_day_full[["DIA", "vin_reparados_unicos"]], use_container_width=True)
 
 # =========================
 # PROBLEMAS MÁS TÍPICOS
