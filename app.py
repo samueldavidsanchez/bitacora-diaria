@@ -21,16 +21,44 @@ BASE_DIR = Path(__file__).resolve().parent
 XLSX_PATH = BASE_DIR / "data" / "bitacora.xlsx"
 CSV_PATH = BASE_DIR / "data" / "bitacora.csv"
 
+# =========================
+# CARGA (con cache que se invalida cuando cambia el archivo)
+# =========================
 @st.cache_data
-def load_df():
-    if XLSX_PATH.exists():
-        df = pd.read_excel(XLSX_PATH)
+def load_df(xlsx_path: str, csv_path: str, cache_buster: float) -> pd.DataFrame:
+    """
+    Carga el dataframe desde XLSX si existe, si no desde CSV.
+    cache_buster se usa solo para invalidar el cache cuando cambie el archivo.
+    """
+    xlsx = Path(xlsx_path)
+    csv = Path(csv_path)
+
+    if xlsx.exists():
+        df = pd.read_excel(xlsx)
     else:
-        df = pd.read_csv(CSV_PATH, sep=";", encoding="latin1")
+        df = pd.read_csv(csv, sep=";", encoding="latin1")
         df = df.loc[:, ~df.columns.str.contains(r"^Unnamed")]
     return df
 
-df = load_df()
+# cache_buster = última modificación del archivo que efectivamente existe
+if XLSX_PATH.exists():
+    cache_buster = XLSX_PATH.stat().st_mtime
+else:
+    cache_buster = CSV_PATH.stat().st_mtime
+
+df = load_df(str(XLSX_PATH), str(CSV_PATH), cache_buster)
+
+# =========================
+# SIDEBAR: acciones + filtros
+# =========================
+with st.sidebar:
+    st.header("Acciones")
+    if st.button("🔄 Forzar actualización"):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.header("Filtros")
+    show_active_only = st.checkbox("Excluir 'De Baja' de los KPIs", value=True)
 
 # =========================
 # VALIDACIONES
@@ -59,12 +87,8 @@ df["FECHA_TRABAJO"] = pd.to_datetime(df[COL_FECHA], dayfirst=True, errors="coerc
 df["TIENE_FECHA_REP"] = df["FECHA_TRABAJO"].notna()
 
 # =========================
-# FILTROS
+# BASE FILTRADA
 # =========================
-with st.sidebar:
-    st.header("Filtros")
-    show_active_only = st.checkbox("Excluir 'De Baja' de los KPIs", value=True)
-
 base = df.copy()
 if show_active_only:
     base = base[~base["ES_DE_BAJA"]].copy()
@@ -103,7 +127,6 @@ else:
     rep_only["_WEEK"] = iso["week"].astype(int)
 
     w = rep_only[(rep_only["_YEAR"] == year_now) & (rep_only["_WEEK"] == week_now)].copy()
-
     w_vin_reparados = int(w.loc[w["ES_REVISADO"], "UNIDAD_ID"].nunique())
 
     s1, s2 = st.columns(2)
@@ -144,11 +167,11 @@ else:
     # Unimos para graficar / mostrar
     by_day_full = by_day.merge(by_day_units, on="DIA", how="left").fillna({"vin_reparados_unicos": 0})
 
-    # ✅ ARREGLADO: nombres correctos (con underscore)
     st.line_chart(by_day_full.set_index("DIA")[["registros_con_fecha", "registros_revisados"]])
 
     st.subheader("VIN reparados (únicos por día)")
-    st.dataframe(by_day_full[["DIA", "vin_reparados_unicos"]], use_container_width=True)
+    # ✅ reemplazo de use_container_width=True
+    st.dataframe(by_day_full[["DIA", "vin_reparados_unicos"]], width="stretch")
 
 # =========================
 # PROBLEMAS MÁS TÍPICOS
@@ -164,4 +187,5 @@ st.bar_chart(top_all)
 
 with st.expander("Ver tabla top problemas"):
     tab = pd.DataFrame({"Tipo de problema": top_all.index, "Registros": top_all.values})
-    st.dataframe(tab, use_container_width=True)
+    # ✅ reemplazo de use_container_width=True
+    st.dataframe(tab, width="stretch")
