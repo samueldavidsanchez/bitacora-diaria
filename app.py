@@ -7,7 +7,7 @@ st.set_page_config(page_title="Bitácora — KPI + Problemas", layout="wide")
 st.title("Bitácora - Reparaciones")
 
 # =========================
-# CONFIG COLUMNAS (TU EXCEL)
+# CONFIG COLUMNAS
 # =========================
 COL_VIN = "VIN CON PROBLEMAS"
 COL_FECHA = "Fecha reparación"
@@ -22,14 +22,10 @@ XLSX_PATH = BASE_DIR / "data" / "bitacora.xlsx"
 CSV_PATH = BASE_DIR / "data" / "bitacora.csv"
 
 # =========================
-# CARGA (con cache que se invalida cuando cambia el archivo)
+# CARGA (cache se invalida si cambia el archivo)
 # =========================
 @st.cache_data
 def load_df(xlsx_path: str, csv_path: str, cache_buster: float) -> pd.DataFrame:
-    """
-    Carga el dataframe desde XLSX si existe, si no desde CSV.
-    cache_buster se usa solo para invalidar el cache cuando cambie el archivo.
-    """
     xlsx = Path(xlsx_path)
     csv = Path(csv_path)
 
@@ -40,7 +36,7 @@ def load_df(xlsx_path: str, csv_path: str, cache_buster: float) -> pd.DataFrame:
         df = df.loc[:, ~df.columns.str.contains(r"^Unnamed")]
     return df
 
-# cache_buster = última modificación del archivo que efectivamente existe
+
 if XLSX_PATH.exists():
     cache_buster = XLSX_PATH.stat().st_mtime
 else:
@@ -49,7 +45,7 @@ else:
 df = load_df(str(XLSX_PATH), str(CSV_PATH), cache_buster)
 
 # =========================
-# SIDEBAR: acciones + filtros
+# SIDEBAR
 # =========================
 with st.sidebar:
     st.header("Acciones")
@@ -79,9 +75,16 @@ df["UNIDAD_ID"] = df[COL_VIN].astype(str).str.strip()
 df["ESTADO_RAW"] = df[COL_ESTADO].fillna("").astype(str).str.strip()
 df["ESTADO"] = df["ESTADO_RAW"].str.lower()
 
-df["Reparado"] = df["ESTADO"].str.contains(r"\brevisad", na=False)         # Revisado/Revisada
-df["ES_NO_REVISADO"] = df["ESTADO"].str.contains(r"\bno\s*revis", na=False)   # No revisada
-df["ES_DE_BAJA"] = df["ESTADO"].str.contains("de baja", na=False)
+# ✅ Ajuste importante: en tu CSV aparece "Reparado"
+df["ES_REVISADO"] = df["ESTADO"].str.contains(r"\brevisad", na=False)      # revisado/revisada
+df["ES_REPARADO"] = df["ESTADO"].str.contains(r"\breparad", na=False)      # reparado/reparada
+df["ES_OPERATIVO"] = df["ESTADO"].str.contains(r"\boperativ", na=False)    # operativa/operativo
+
+df["ES_DE_BAJA"] = df["ESTADO"].str.contains(r"\bde\s*baja\b", na=False)
+df["ES_PERDIDA_TOTAL"] = df["ESTADO"].str.contains(r"perdid", na=False)
+
+# ✅ Consideramos "FINALIZADO" si está revisado/reparado/operativo (pero NO perdida total)
+df["ES_FINALIZADO"] = (df["ES_REVISADO"] | df["ES_REPARADO"] | df["ES_OPERATIVO"]) & (~df["ES_PERDIDA_TOTAL"])
 
 df["FECHA_TRABAJO"] = pd.to_datetime(df[COL_FECHA], dayfirst=True, errors="coerce")
 df["TIENE_FECHA_REP"] = df["FECHA_TRABAJO"].notna()
@@ -94,10 +97,12 @@ if show_active_only:
     base = base[~base["ES_DE_BAJA"]].copy()
 
 # =========================
-# KPI PRINCIPAL: VIN únicos vs VIN reparados (con fecha)
+# KPIs
 # =========================
 vin_total_unicos = int(base["UNIDAD_ID"].nunique())
-vin_reparados_unicos = int(base.loc[base["Reparado"] & base["TIENE_FECHA_REP"], "UNIDAD_ID"].nunique())
+vin_reparados_unicos = int(
+    base.loc[base["ES_FINALIZADO"] & base["TIENE_FECHA_REP"], "UNIDAD_ID"].nunique()
+)
 
 pct_reparados = (vin_reparados_unicos / vin_total_unicos * 100) if vin_total_unicos else 0
 pct_no_reparados = 100 - pct_reparados if vin_total_unicos else 0
@@ -110,7 +115,7 @@ k3.metric("% VIN reparados", f"{pct_reparados:.1f}%")
 k4.metric("% VIN no reparados", f"{pct_no_reparados:.1f}%")
 
 # =========================
-# SEMANA ACTUAL — Reparados esta semana (según fecha)
+# SEMANA ACTUAL
 # =========================
 st.subheader("Semana actual")
 
@@ -127,13 +132,13 @@ else:
     rep_only["_WEEK"] = iso["week"].astype(int)
 
     w = rep_only[(rep_only["_YEAR"] == year_now) & (rep_only["_WEEK"] == week_now)].copy()
-    w_vin_reparados = int(w.loc[w["Reparado"], "UNIDAD_ID"].nunique())
+    w_vin_reparados = int(w.loc[w["ES_FINALIZADO"], "UNIDAD_ID"].nunique())
 
     s1, s2 = st.columns(2)
     s1.metric("VIN reparados (únicos) — semana", f"{w_vin_reparados:,}".replace(",", "."))
 
 # =========================
-# REPARACIONES POR DÍA (solo filas con fecha)
+# REPARACIONES POR DÍA
 # =========================
 st.subheader("Reparaciones por día")
 
@@ -143,20 +148,18 @@ if rep_only2.empty:
 else:
     rep_only2 = rep_only2.assign(DIA=rep_only2["FECHA_TRABAJO"].dt.date)
 
-    # Registros por día
     by_day = (
         rep_only2.groupby("DIA")
         .agg(
             registros_con_fecha=("UNIDAD_ID", "count"),
-            registros_revisados=("Reparado", "sum"),
+            registros_finalizados=("ES_FINALIZADO", "sum"),
         )
         .reset_index()
         .sort_values("DIA")
     )
 
-    # VIN reparados únicos por día (solo Revisado)
     by_day_units = (
-        rep_only2.loc[rep_only2["Reparado"]]
+        rep_only2.loc[rep_only2["ES_FINALIZADO"]]
         .groupby("DIA")["UNIDAD_ID"]
         .nunique()
         .rename("vin_reparados_unicos")
@@ -164,13 +167,11 @@ else:
         .sort_values("DIA")
     )
 
-    # Unimos para graficar / mostrar
     by_day_full = by_day.merge(by_day_units, on="DIA", how="left").fillna({"vin_reparados_unicos": 0})
 
-    st.line_chart(by_day_full.set_index("DIA")[["registros_con_fecha", "registros_revisados"]])
+    st.line_chart(by_day_full.set_index("DIA")[["registros_con_fecha", "registros_finalizados"]])
 
     st.subheader("VIN reparados (únicos por día)")
-    # ✅ reemplazo de use_container_width=True
     st.dataframe(by_day_full[["DIA", "vin_reparados_unicos"]], width="stretch")
 
 # =========================
@@ -187,5 +188,4 @@ st.bar_chart(top_all)
 
 with st.expander("Ver tabla top problemas"):
     tab = pd.DataFrame({"Tipo de problema": top_all.index, "Registros": top_all.values})
-    # ✅ reemplazo de use_container_width=True
     st.dataframe(tab, width="stretch")
