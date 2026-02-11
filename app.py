@@ -79,7 +79,7 @@ df["UNIDAD_ID"] = df[COL_VIN].astype(str).str.strip()
 df["ESTADO_RAW"] = df[COL_ESTADO].fillna("").astype(str).str.strip()
 df["ESTADO"] = df["ESTADO_RAW"].str.lower()
 
-df["ES_REVISADO"] = df["ESTADO"].str.contains(r"\brevisad", na=False)         # Revisado/Revisada
+df["Reparado"] = df["ESTADO"].str.contains(r"\brevisad", na=False)         # Revisado/Revisada
 df["ES_NO_REVISADO"] = df["ESTADO"].str.contains(r"\bno\s*revis", na=False)   # No revisada
 df["ES_DE_BAJA"] = df["ESTADO"].str.contains("de baja", na=False)
 
@@ -97,7 +97,7 @@ if show_active_only:
 # KPI PRINCIPAL: VIN únicos vs VIN reparados (con fecha)
 # =========================
 vin_total_unicos = int(base["UNIDAD_ID"].nunique())
-vin_reparados_unicos = int(base.loc[base["ES_REVISADO"] & base["TIENE_FECHA_REP"], "UNIDAD_ID"].nunique())
+vin_reparados_unicos = int(base.loc[base["Reparado"] & base["TIENE_FECHA_REP"], "UNIDAD_ID"].nunique())
 
 pct_reparados = (vin_reparados_unicos / vin_total_unicos * 100) if vin_total_unicos else 0
 pct_no_reparados = 100 - pct_reparados if vin_total_unicos else 0
@@ -127,7 +127,7 @@ else:
     rep_only["_WEEK"] = iso["week"].astype(int)
 
     w = rep_only[(rep_only["_YEAR"] == year_now) & (rep_only["_WEEK"] == week_now)].copy()
-    w_vin_reparados = int(w.loc[w["ES_REVISADO"], "UNIDAD_ID"].nunique())
+    w_vin_reparados = int(w.loc[w["Reparado"], "UNIDAD_ID"].nunique())
 
     s1, s2 = st.columns(2)
     s1.metric("VIN reparados (únicos) — semana", f"{w_vin_reparados:,}".replace(",", "."))
@@ -148,7 +148,7 @@ else:
         rep_only2.groupby("DIA")
         .agg(
             registros_con_fecha=("UNIDAD_ID", "count"),
-            registros_revisados=("ES_REVISADO", "sum"),
+            registros_revisados=("Reparado", "sum"),
         )
         .reset_index()
         .sort_values("DIA")
@@ -156,7 +156,7 @@ else:
 
     # VIN reparados únicos por día (solo Revisado)
     by_day_units = (
-        rep_only2.loc[rep_only2["ES_REVISADO"]]
+        rep_only2.loc[rep_only2["Reparado"]]
         .groupby("DIA")["UNIDAD_ID"]
         .nunique()
         .rename("vin_reparados_unicos")
